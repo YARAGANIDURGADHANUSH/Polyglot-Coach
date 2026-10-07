@@ -19,16 +19,31 @@ const $=s=>document.querySelector(s),R=h=>$('#app').innerHTML=h;
 const esc=t=>String(t??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const load=m=>`<div class="card">⏳ ${m}</div>`;
 let S=null;try{S=JSON.parse(localStorage.getItem('pc'))}catch(e){}
+if(S&&!S.provs)S.provs=[{id:'gemini',key:S.key,model:'gemini-3.5-flash-lite'}];
 const save=()=>{try{localStorage.setItem('pc',JSON.stringify(S))}catch(e){}};
 let cur='de',chat=[],test=null,plays={};
 const LANG={de:'de-DE',en:'en-GB'};
 
-/* ---------- Gemini (free tier key from aistudio.google.com/apikey) ---------- */
+/* ---------- AI providers (all free tiers, auto-fallback) ---------- */
+const PV={
+ groq:{n:'Groq',url:'https://api.groq.com/openai/v1/chat/completions',m:'openai/gpt-oss-120b',h:'console.groq.com/keys'},
+ gemini:{n:'Gemini',m:'gemini-3.5-flash-lite',h:'aistudio.google.com/apikey'},
+ or:{n:'OpenRouter',url:'https://openrouter.ai/api/v1/chat/completions',m:'openrouter/free',h:'openrouter.ai/keys'}};
+const parse=t=>{t=t.replace(/```json|```/g,'').trim();try{return JSON.parse(t)}catch(e){return JSON.parse(t.slice(t.indexOf('{'),t.lastIndexOf('}')+1))}};
+async function call(p,msgs,sys,json){
+ if(p.id=='gemini'){const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${p.model}:generateContent?key=${p.key}`,{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({systemInstruction:{parts:[{text:sys||''}]},contents:msgs,generationConfig:json?{responseMimeType:'application/json'}:{}})});
+  const d=await r.json();if(d.error)throw new Error(d.error.message);return d.candidates[0].content.parts.map(x=>x.text||'').join('')}
+ const r=await fetch(PV[p.id].url,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+p.key},
+  body:JSON.stringify({model:p.model,messages:[{role:'system',content:sys||''},...msgs.map(m=>({role:m.role=='user'?'user':'assistant',content:m.parts[0].text}))]})});
+ const d=await r.json();if(d.error)throw new Error(d.error.message||JSON.stringify(d.error));return d.choices[0].message.content}
 async function ai(p,sys,json){
- const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${S.model}:generateContent?key=${S.key}`,{method:'POST',headers:{'Content-Type':'application/json'},
- body:JSON.stringify({systemInstruction:{parts:[{text:sys||''}]},contents:Array.isArray(p)?p:[{role:'user',parts:[{text:p}]}],generationConfig:json?{responseMimeType:'application/json'}:{}})});
- const d=await r.json();if(d.error)throw new Error(d.error.message);
- const t=d.candidates[0].content.parts.map(x=>x.text||'').join('');return json?JSON.parse(t):t}
+ const msgs=Array.isArray(p)?p:[{role:'user',parts:[{text:p}]}];let last;
+ for(const pr of S.provs)for(let k=0;k<2;k++){try{const t=await call(pr,msgs,sys,json);return json?parse(t):t}catch(e){last=e;await new Promise(r=>setTimeout(r,1200))}}
+ throw new Error('All providers failed ('+last.message+'). Wait a minute or add another free key under "API keys".')}
+const keyRows=()=>Object.keys(PV).map(id=>`<label>${PV[id].n} key <span class="m">(${PV[id].h})</span><input id="k_${id}" value="${esc((S?.provs||[]).find(p=>p.id==id)?.key||'')}"></label>`).join('');
+const readKeys=()=>Object.keys(PV).filter(id=>$('#k_'+id).value.trim()).map(id=>({id,key:$('#k_'+id).value.trim(),model:PV[id].m}));
+function keys(){R(`<div class="card"><h3>API keys</h3><p class="m">Keys are tried in this order; if one is busy the next is used automatically.</p>${keyRows()}<div class="row"><button onclick="const k=readKeys();if(!k.length)return alert('Add at least one key');S.provs=k;save();home()">Save</button><button class="g" onclick="home()">Back</button></div></div>`)}
 
 /* ---------- Speech (browser, Chrome/Edge recommended) ---------- */
 function say(txt,t){if(!window.speechSynthesis)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(txt);u.lang=LANG[t||cur];u.rate=.9;speechSynthesis.speak(u)}
@@ -49,8 +64,7 @@ async function mkPlan(t){const T=S.tr[t];
 
 /* ---------- Setup ---------- */
 function setup(){R(`<div class="card"><h2>Polyglot Coach – setup</h2>
-<p class="m">Free API key: get one at aistudio.google.com/apikey (Gemini free tier). It stays in this browser only.</p>
-<div class="row"><input id="key" placeholder="Gemini API key"><input id="model" value="gemini-2.5-flash"></div>
+<p class="m">Add at least one free key (Groq is fast and recommended). With several keys the app switches automatically when one is busy.</p>${keyRows()}
 <h3>🇩🇪 German (starting from zero)</h3><div class="row">
 <label>Target exam<select id="dg"><option>A1</option><option>A2</option><option selected>B1</option><option>B2</option><option>C1</option><option>TestDaF</option></select></label>
 <label>Days available<input id="dd" type="number" value="120"></label><label>Minutes/day<input id="dm" type="number" value="90"></label></div>
@@ -60,8 +74,8 @@ function setup(){R(`<div class="card"><h2>Polyglot Coach – setup</h2>
 <label>Days available<input id="ed" type="number" value="45"></label><label>Minutes/day<input id="em" type="number" value="45"></label></div>
 <button onclick="setupGo()">Build my syllabus & timetable</button></div>`)}
 async function setupGo(){const g=i=>$('#'+i).value;
- if(!g('key').trim())return alert('Enter your API key');
- S={key:g('key').trim(),model:g('model').trim()||'gemini-2.5-flash',tr:{
+ const provs=readKeys();if(!provs.length)return alert('Enter at least one API key');
+ S={provs,tr:{
   de:{goal:g('dg'),exam:g('dg')=='TestDaF'?'TestDaF':'Goethe-Zertifikat '+g('dg'),cur:'Absolute beginner (A0)',days:+g('dd'),min:+g('dm'),day:0,hist:[],notes:''},
   en:{goal:g('eg'),cur:'Band '+g('ec'),days:+g('ed'),min:+g('em'),day:0,hist:[],notes:''}}};
  R(load('Building your syllabus and timetable…'));
@@ -71,7 +85,7 @@ function resetAll(){if(confirm('Delete all progress and settings?')){localStorag
 /* ---------- Dashboard ---------- */
 function sw(t){cur=t;chat=[];home()}
 function home(){if(!S)return setup();const T=S.tr[cur],p=topic(cur);
- R(`<div class="row"><button class="${cur=='de'?'':'g'}" onclick="sw('de')">🇩🇪 German</button><button class="${cur=='en'?'':'g'}" onclick="sw('en')">🇬🇧 IELTS</button><button class="g" onclick="resetAll()">Reset / settings</button></div>
+ R(`<div class="row"><button class="${cur=='de'?'':'g'}" onclick="sw('de')">🇩🇪 German</button><button class="${cur=='en'?'':'g'}" onclick="sw('en')">🇬🇧 IELTS</button><button class="g" onclick="keys()">API keys</button><button class="g" onclick="resetAll()">Reset all</button></div>
  <div class="card"><h2 style="margin:0">${esc(exam(cur))} – target ${T.goal}</h2>
  <p class="m">Day ${Math.min(T.day+1,T.days)} of ${T.days} · current level: ${esc(T.cur)}</p><p>${esc(T.plan.verdict)}</p>
  <p><b>Today: ${esc(p.name)}</b> – ${esc(p.topics.join(' · '))}</p>${T.notes?`<p class="m">Adapted from last test: ${esc(T.notes)}</p>`:''}
