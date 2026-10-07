@@ -1,0 +1,121 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Polyglot Coach</title>
+<style>
+:root{--bg:#f6f7fb;--c:#fff;--t:#1d2433;--m:#667;--a:#2a5bd7;--b:#dde1ea}
+@media(prefers-color-scheme:dark){:root{--bg:#12151c;--c:#1b202b;--t:#e8ebf2;--m:#99a;--a:#6d9bff;--b:#2c3342}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--t)}
+main{max-width:860px;margin:auto;padding:14px}
+.card{background:var(--c);border:1px solid var(--b);border-radius:12px;padding:14px;margin:12px 0}
+button{background:var(--a);color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font:inherit}
+button.g{background:transparent;color:var(--a);border:1px solid var(--a)}
+input,select,textarea{width:100%;padding:8px;border:1px solid var(--b);border-radius:8px;background:var(--bg);color:var(--t);font:inherit}
+input[type=radio],input[type=checkbox]{width:auto}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}.row>*{flex:1;min-width:130px}
+.msg{padding:8px 12px;border-radius:10px;margin:6px 0;white-space:pre-wrap;max-width:88%}
+.u{background:var(--a);color:#fff;margin-left:auto}.a{background:var(--bg);border:1px solid var(--b)}
+#log{max-height:52vh;overflow:auto}.m{color:var(--m)}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid var(--b);padding:4px;text-align:left}
+</style></head><body><main id="app"></main>
+<script>
+const $=s=>document.querySelector(s),R=h=>$('#app').innerHTML=h;
+const esc=t=>String(t??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const load=m=>`<div class="card">⏳ ${m}</div>`;
+let S=null;try{S=JSON.parse(localStorage.getItem('pc'))}catch(e){}
+const save=()=>{try{localStorage.setItem('pc',JSON.stringify(S))}catch(e){}};
+let cur='de',chat=[],test=null,plays={};
+const LANG={de:'de-DE',en:'en-GB'};
+
+/* ---------- Gemini (free tier key from aistudio.google.com/apikey) ---------- */
+async function ai(p,sys,json){
+ const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${S.model}:generateContent?key=${S.key}`,{method:'POST',headers:{'Content-Type':'application/json'},
+ body:JSON.stringify({systemInstruction:{parts:[{text:sys||''}]},contents:Array.isArray(p)?p:[{role:'user',parts:[{text:p}]}],generationConfig:json?{responseMimeType:'application/json'}:{}})});
+ const d=await r.json();if(d.error)throw new Error(d.error.message);
+ const t=d.candidates[0].content.parts.map(x=>x.text||'').join('');return json?JSON.parse(t):t}
+
+/* ---------- Speech (browser, Chrome/Edge recommended) ---------- */
+function say(txt,t){if(!window.speechSynthesis)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(txt);u.lang=LANG[t||cur];u.rate=.9;speechSynthesis.speak(u)}
+function listen(cb){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return alert('Speech input needs Chrome or Edge.');
+ const r=new SR();r.lang=LANG[cur];r.interimResults=false;r.onresult=e=>cb(e.results[0][0].transcript);r.onerror=e=>alert('Mic error: '+e.error);r.start()}
+
+/* ---------- Prompts ---------- */
+const SYS={
+de:`You are a friendly German tutor and certified Goethe-Institut/TestDaF examiner running a spoken-style conversation lesson. Keep replies under 70 words. Reply in German suited to the learner's level (absolute beginner: very short, simple sentences), then a new line starting "EN: " with an English translation/help. If the learner made mistakes, add a line "FIX: " with corrections. End with ONE question to keep the conversation going.`,
+en:`You are a certified IELTS Speaking examiner and coach. Run the conversation like IELTS Speaking Parts 1-3 adapted to today's topic, one question at a time, replies under 60 words. After each learner answer add "FIX: " (grammar/vocabulary corrections and a stronger band-8 phrasing) and "BAND: " (estimated band for that answer), then ask the next question.`};
+const EX=`You are a strict, certified examiner. Produce and mark tasks that mirror the authentic format, difficulty and marking criteria of the real exam. Output valid JSON only when asked.`;
+const exam=t=>t=='de'?S.tr.de.exam:'IELTS (Speaking & Listening only)';
+function topic(t){const T=S.tr[t];let d=T.day;for(const p of T.plan.phases){if(d<p.days)return p;d-=p.days}return T.plan.phases.at(-1)}
+function ctx(t){const T=S.tr[t],p=topic(t);return `Learner level now: ${T.cur}. Goal: ${T.goal}. Day ${T.day+1}/${T.days}, phase "${p.name}", topics: ${p.topics.join(', ')}. Weak areas to emphasise: ${T.notes||'none yet'}.`}
+
+async function mkPlan(t){const T=S.tr[t];
+ return ai(`Learner: ${t=='de'?`absolute beginner in German aiming for ${T.exam}. Cover all 4 modules (Lesen, Hören, Schreiben, Sprechen)`:`IELTS, current ${T.cur}, target band ${T.goal}. ONLY speaking and listening`}. Days available: ${T.days}. Study minutes per day: ${T.min}. Training is conversation-based with an AI tutor (voice/chat) plus one exam-style test every day. Return JSON {"verdict":"honest 1-2 sentence feasibility check","phases":[{"name":"","days":0,"topics":[""]}] (days sum to ${T.days}),"timetable":[{"activity":"","minutes":0}] (minutes sum to ${T.min}, includes the daily test)}`,EX,true)}
+
+/* ---------- Setup ---------- */
+function setup(){R(`<div class="card"><h2>Polyglot Coach – setup</h2>
+<p class="m">Free API key: get one at aistudio.google.com/apikey (Gemini free tier). It stays in this browser only.</p>
+<div class="row"><input id="key" placeholder="Gemini API key"><input id="model" value="gemini-2.5-flash"></div>
+<h3>🇩🇪 German (starting from zero)</h3><div class="row">
+<label>Target exam<select id="dg"><option>A1</option><option>A2</option><option selected>B1</option><option>B2</option><option>C1</option><option>TestDaF</option></select></label>
+<label>Days available<input id="dd" type="number" value="120"></label><label>Minutes/day<input id="dm" type="number" value="90"></label></div>
+<h3>🇬🇧 IELTS (Speaking + Listening)</h3><div class="row">
+<label>Target band<select id="eg">${[9,8.5,8,7.5,7,6.5,6].map(b=>`<option ${b==8?'selected':''}>${b.toFixed(1)}</option>`).join('')}</select></label>
+<label>Current band (estimate)<select id="ec">${[7.5,7,6.5,6,5.5,5].map(b=>`<option ${b==6.5?'selected':''}>${b.toFixed(1)}</option>`).join('')}</select></label>
+<label>Days available<input id="ed" type="number" value="45"></label><label>Minutes/day<input id="em" type="number" value="45"></label></div>
+<button onclick="setupGo()">Build my syllabus & timetable</button></div>`)}
+async function setupGo(){const g=i=>$('#'+i).value;
+ if(!g('key').trim())return alert('Enter your API key');
+ S={key:g('key').trim(),model:g('model').trim()||'gemini-2.5-flash',tr:{
+  de:{goal:g('dg'),exam:g('dg')=='TestDaF'?'TestDaF':'Goethe-Zertifikat '+g('dg'),cur:'Absolute beginner (A0)',days:+g('dd'),min:+g('dm'),day:0,hist:[],notes:''},
+  en:{goal:g('eg'),cur:'Band '+g('ec'),days:+g('ed'),min:+g('em'),day:0,hist:[],notes:''}}};
+ R(load('Building your syllabus and timetable…'));
+ try{for(const t of['de','en'])S.tr[t].plan=await mkPlan(t);save();home()}catch(e){alert(e.message);S=null;setup()}}
+function resetAll(){if(confirm('Delete all progress and settings?')){localStorage.removeItem('pc');S=null;setup()}}
+
+/* ---------- Dashboard ---------- */
+function sw(t){cur=t;chat=[];home()}
+function home(){if(!S)return setup();const T=S.tr[cur],p=topic(cur);
+ R(`<div class="row"><button class="${cur=='de'?'':'g'}" onclick="sw('de')">🇩🇪 German</button><button class="${cur=='en'?'':'g'}" onclick="sw('en')">🇬🇧 IELTS</button><button class="g" onclick="resetAll()">Reset / settings</button></div>
+ <div class="card"><h2 style="margin:0">${esc(exam(cur))} – target ${T.goal}</h2>
+ <p class="m">Day ${Math.min(T.day+1,T.days)} of ${T.days} · current level: ${esc(T.cur)}</p><p>${esc(T.plan.verdict)}</p>
+ <p><b>Today: ${esc(p.name)}</b> – ${esc(p.topics.join(' · '))}</p>${T.notes?`<p class="m">Adapted from last test: ${esc(T.notes)}</p>`:''}
+ <div class="row"><button onclick="lesson()">💬 Conversation lesson</button><button onclick="startTest()">📝 Daily test</button></div></div>
+ <div class="card"><b>Daily timetable (${T.min} min)</b><ul>${T.plan.timetable.map(x=>`<li>${esc(x.activity)} – ${x.minutes} min</li>`).join('')}</ul></div>
+ <div class="card"><b>Syllabus</b>${T.plan.phases.map(x=>`<details><summary>${esc(x.name)} (${x.days} days)</summary><ul>${x.topics.map(y=>`<li>${esc(y)}</li>`).join('')}</ul></details>`).join('')}</div>
+ <div class="card"><b>Test history</b>${T.hist.length?`<table><tr><th>Day</th><th>Date</th><th>Result</th></tr>${T.hist.map(h=>`<tr><td>${h.day}</td><td>${h.date}</td><td>${esc(h.overall)}</td></tr>`).join('')}</table>`:'<p class="m">No tests yet.</p>'}</div>`)}
+
+/* ---------- Conversation lesson ---------- */
+function lesson(){chat=[{role:'user',parts:[{text:"Start today's lesson with a greeting and your first question."}]}];
+ R(`<div class="card"><div class="row"><b>${cur=='de'?'German':'IELTS'} lesson – day ${S.tr[cur].day+1}</b><button class="g" onclick="home()">← Back</button></div>
+ <div id="log"></div><div class="row"><input id="in" placeholder="Type, or press 🎤 and speak" onkeydown="if(event.key=='Enter')snd()"><button onclick="listen(x=>snd(x))">🎤 Speak</button><button onclick="snd()">Send</button></div>
+ <label><input type="checkbox" id="sp" checked> Read tutor replies aloud</label></div>`);turn()}
+function log(){$('#log').innerHTML=chat.slice(1).map(m=>`<div class="msg ${m.role=='user'?'u':'a'}">${esc(m.parts[0].text)}</div>`).join('');$('#log').scrollTop=1e9}
+async function turn(){try{$('#log').innerHTML+='<div class="m">…</div>';const r=await ai(chat,SYS[cur]+'\n'+ctx(cur));chat.push({role:'model',parts:[{text:r}]});log();if($('#sp').checked)say(r.split(/\n?(?:EN|FIX|BAND):/)[0])}catch(e){alert(e.message)}}
+function snd(v){const i=$('#in'),t=(v||i.value).trim();if(!t)return;i.value='';chat.push({role:'user',parts:[{text:t}]});log();turn()}
+
+/* ---------- Daily exam-style test ---------- */
+async function startTest(){R(load('Preparing today\'s exam-style test…'));const T=S.tr[cur];
+ const fmt=cur=='de'?`Sections (in this order): "reading" (1 passage in "passage", 4 multiple-choice items), "listening" (audio transcript in "script", 4 multiple-choice items), "writing" (one task with required content points and minimum words, 1 item), "speaking" (2-3 prompts typical of the exam, items).`
+ :`Sections: "listening" (IELTS-style transcript in "script", 5 items: mix of multiple-choice and short-answer), "speaking" (Part 1: 4 questions; Part 2: cue card with 1 item; Part 3: 3 abstract discussion questions).`;
+ try{test=await ai(`Create today's daily test (~25 min) for ${exam(cur)}. ${ctx(cur)} Mirror the real exam task types for the learner's current level, moving toward the target. ${fmt} Return JSON {"title":"","sections":[{"skill":"reading|listening|writing|speaking","instructions":"","passage":"optional","script":"optional","items":[{"q":"","options":["optional"],"answer":0 (index of correct option, only with options)}]}]}. ${cur=='de'?'Write tasks in German (with English instructions only for A1/A2).':''}`,EX,true);plays={};testView()}catch(e){alert(e.message);home()}}
+function testView(){R(`<div class="card"><div class="row"><h3 style="margin:0">${esc(test.title)}</h3><button class="g" onclick="home()">Cancel</button></div></div>`+
+ test.sections.map((s,i)=>`<div class="card"><b>${s.skill.toUpperCase()}</b><p class="m">${esc(s.instructions)}</p>${s.passage?`<p>${esc(s.passage)}</p>`:''}
+ ${s.script?`<button class="g" onclick="play(${i})">▶ Play audio (<span id="pl${i}">2</span> plays left)</button>`:''}
+ ${s.items.map((it,j)=>`<p><b>${esc(it.q)}</b></p>`+(it.options?it.options.map((o,k)=>`<label style="display:block"><input type="radio" name="a${i}_${j}" value="${k}"> ${esc(o)}</label>`).join(''):
+ `<textarea id="a${i}_${j}" rows="${s.skill=='writing'?8:3}"></textarea>`+(s.skill=='speaking'?`<div class="row"><button class="g" onclick="sayQ(${i},${j})">🔊 Hear question</button><button class="g" onclick="listen(x=>$('#a${i}_${j}').value+=x+' ')">🎤 Answer by voice</button></div>`:''))).join('')}</div>`).join('')+
+ `<button onclick="submit()">Submit for marking</button>`)}
+function play(i){const n=plays[i]??2;if(n<1)return;plays[i]=n-1;$('#pl'+i).textContent=n-1;say(test.sections[i].script)}
+function sayQ(i,j){say(test.sections[i].items[j].q)}
+async function submit(){const rows=[];
+ test.sections.forEach((s,i)=>s.items.forEach((it,j)=>{if(it.options){const c=document.querySelector(`input[name=a${i}_${j}]:checked`);rows.push({skill:s.skill,q:it.q,user:c?it.options[c.value]:'(no answer)',correct:it.options[it.answer]})}
+ else rows.push({skill:s.skill,q:it.q,user:$('#a'+i+'_'+j).value||'(no answer)'})}));
+ R(load('Examiner is marking your test…'));const T=S.tr[cur];
+ const scale=cur=='de'?`Use official-style scoring: each module out of 25 points (total 100, pass 60 for Goethe; for TestDaF give TDN level). overallLabel like "72/100 – passed".`:`Use official IELTS band descriptors (fluency, lexical resource, grammar, pronunciation as far as a transcript allows; listening raw score to band). overallLabel like "Band 7.0".`;
+ try{const r=await ai(`Mark this learner's test for ${exam(cur)}. ${ctx(cur)} Multiple-choice rows include the correct answer; grade free answers strictly against the real exam criteria. Speaking answers are voice transcripts, so judge content, grammar, vocabulary and coherence and say honestly that pronunciation cannot be fully assessed. ${scale} Also decide how tomorrow's plan must change. Answers: ${JSON.stringify(rows)}
+ Return JSON {"scores":[{"skill":"","score":0,"max":0,"comment":""}],"overallLabel":"","mistakes":[{"you":"","better":"","why":""}],"weak":[""],"daysDelta":0 (integer -5..5, change in total days),"focus":[""],"note":"what to emphasise next","level":"estimated current level, e.g. A1 or Band 6.5"}`,EX,true);
+ T.hist.push({day:T.day+1,date:new Date().toLocaleDateString(),overall:r.overallLabel});T.day++;
+ T.days=Math.max(T.day+1,T.days+Math.max(-5,Math.min(5,r.daysDelta||0)));T.cur=r.level||T.cur;T.notes=[r.note,...(r.focus||[])].filter(Boolean).join('; ');save();
+ R(`<div class="card"><h2 style="margin:0">${esc(r.overallLabel)}</h2><p class="m">Estimated level: ${esc(T.cur)} · plan adjusted by ${r.daysDelta||0} day(s)</p>
+ <table>${r.scores.map(s=>`<tr><td><b>${esc(s.skill)}</b></td><td>${s.score}/${s.max}</td><td>${esc(s.comment)}</td></tr>`).join('')}</table></div>
+ <div class="card"><b>Corrections</b>${r.mistakes.map(m=>`<p>❌ ${esc(m.you)}<br>✅ ${esc(m.better)}<br><span class="m">${esc(m.why)}</span></p>`).join('')}</div>
+ <div class="card"><b>Next focus:</b> ${esc(T.notes)}<div class="row"><button onclick="home()">Back to dashboard</button></div></div>`)}
+ catch(e){alert(e.message);home()}}
+
+S?home():setup();
+</script></body></html>
