@@ -23,7 +23,10 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--a);outline-offse
 #log{max-height:55vh;overflow:auto;padding:4px}.m{color:var(--m)}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid var(--b);padding:6px 4px;text-align:left}
 summary{cursor:pointer}details{margin:6px 0}.foot{margin-top:18px}
 .sp{display:inline-block;width:16px;height:16px;border:3px solid var(--b);border-top-color:var(--a);border-radius:50%;animation:s .8s linear infinite;vertical-align:-3px;margin-right:8px}@keyframes s{to{transform:rotate(360deg)}}
-</style></head><body><header><b>🎓 Polyglot Coach</b><span>German · IELTS · AI conversation tutor</span></header><main id="app"></main>
+#jv{position:fixed;left:0;right:0;bottom:0;background:var(--c);border-top:1px solid var(--b);padding:10px 16px;display:flex;gap:14px;align-items:center;box-shadow:0 -4px 20px rgba(0,0,0,.18);z-index:9}
+#orb{width:54px;height:54px;border-radius:50%;padding:0;font-size:24px;flex:none;background:linear-gradient(135deg,var(--a),var(--a2))}#orb.live{animation:pl 1.4s infinite}
+@keyframes pl{0%{box-shadow:0 0 0 0 rgba(124,131,255,.7)}100%{box-shadow:0 0 0 18px rgba(124,131,255,0)}}#jsay{font-weight:600;max-height:3.2em;overflow:auto}main{padding-bottom:110px}
+</style></head><body><header><b>🎓 Polyglot Coach</b><span>German · IELTS · AI conversation tutor</span></header><main id="app"></main><div id="jv"><button id="orb" title="Wake / sleep Jarvis" onclick="toggleJ()">🎙</button><div><div id="jsay">Click the orb to wake Jarvis</div><div id="jhear" class="m"></div></div></div>
 <script>
 const $=s=>document.querySelector(s),R=h=>$('#app').innerHTML=h;
 const esc=t=>String(t??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -56,10 +59,95 @@ const readKeys=()=>Object.keys(PV).filter(id=>$('#k_'+id).value.trim()).map(id=>
 function keys(){R(`<div class="card"><h3>API keys</h3><p class="m">Keys are tried in this order; if one is busy the next is used automatically.</p>${keyRows()}<div class="row"><button onclick="const k=readKeys();if(!k.length)return alert('Add at least one key');S.provs=k;save();home()">Save</button><button class="g" onclick="home()">Back</button></div></div>`)}
 
 /* ---------- Speech (browser, Chrome/Edge recommended) ---------- */
-function say(txt,t,rate){if(!window.speechSynthesis)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(txt);u.lang=LANG[t||cur];u.rate=rate||.9;speechSynthesis.speak(u)}
+let V={on:0,mode:'',run:0,wait:null,speaking:0,sid:0,last:null,rl:'en-GB',rec:null,live:0},lbuf=[],lt;
+const ok=id=>V.run===id,orb=x=>{const o=$('#orb');if(o)o.classList.toggle('live',!!x)};
+const lg=t=>cur=='de'&&/\b(der|die|das|und|ist|sie|ich|nicht|bitte|aufgabe|lesen|hören|wie|was|ein|eine|mit|für)\b/i.test(t)?'de':'en';
+const vo=L=>{const v=speechSynthesis.getVoices().filter(x=>x.lang.replace('_','-').startsWith(L.slice(0,2)));return v.find(x=>x.lang.startsWith(L)&&(L=='en-GB'?/Daniel|UK English Male|George|Male/i:/Google|Anna|Katja|Hedda/i).test(x.name))||v.find(x=>x.lang.startsWith(L))||v[0]};
+function say(txt,t,rate){return new Promise(res=>{if(!txt||!window.speechSynthesis)return res();speechSynthesis.cancel();const my=++V.sid,L=LANG[t||cur],ch=String(txt).match(/[^.!?\n]+[.!?]*/g)||[txt];V.last={t:txt,l:t||cur};V.speaking=1;try{V.rec&&V.rec.abort()}catch(e){}
+ const d=()=>{if(my!==V.sid)return res();V.speaking=0;res();loop()},c=$('#jsay');if(c)c.textContent=txt;
+ ch.forEach((x,i)=>{const u=new SpeechSynthesisUtterance(x.trim());u.lang=L;u.voice=vo(L)||null;u.rate=rate||.92;if(i==ch.length-1)u.onend=u.onerror=d;speechSynthesis.speak(u)})})}
 const st=m=>{const e=$('#st');if(e)e.textContent=m};
+function setRL(l){V.rl=LANG[l]||'en-GB';try{V.rec&&V.rec.abort()}catch(e){}}
+function loop(){if(!V.on||V.speaking||V.live)return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){V.on=0;return alert('Voice control needs Chrome or Edge.')}
+ const r=V.rec=new SR();r.lang=V.rl;r.continuous=true;r.interimResults=false;r.onstart=()=>{V.live=1;orb(1)};
+ r.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++)if(e.results[i].isFinal)hear(e.results[i][0].transcript)};
+ r.onerror=e=>{if(/not-allowed|service-not-allowed/.test(e.error)){V.on=0;alert('Microphone is blocked. Click the lock icon in the address bar, allow Microphone, then reload.')}};
+ r.onend=()=>{V.live=0;orb(0);if(V.on&&!V.speaking)setTimeout(loop,300)};try{r.start()}catch(e){}}
+function listenFor(sil,max){return new Promise(res=>{let b=[],tm;const fin=()=>{V.wait=null;clearTimeout(tm);res(b.join(' ').trim())};
+ V.wait=t=>{if(/^(done|next|finished|that'?s it|ready|fertig|weiter)\W*$/i.test(t.trim())){return fin()}b.push(t);clearTimeout(tm);tm=setTimeout(fin,sil)};tm=setTimeout(fin,max||30000)})}
+const W={zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,fifteen:15,twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90,hundred:100};
+function num(t){t=t.toLowerCase();let m=t.match(/(\d+)\s*(?:point|dot|\.|,)\s*(\d+)/)||t.match(/(\d+(?:\.\d+)?)/);if(m)return m[2]?+(m[1]+'.'+m[2]):+m[1];
+ m=t.match(/(\w+) point (\w+)/);if(m&&m[1] in W&&m[2] in W)return W[m[1]]+W[m[2]]/10;let tot=null;for(const w of t.split(/[\s-]+/))if(w in W)tot=w=='hundred'?(tot||1)*100:(tot||0)+W[w];return tot}
+const P={g:t=>{t=t.toLowerCase();if(/test ?daf/.test(t))return'TestDaF';const m=t.match(/\b([abc])[\s-]*(1|2|one|won|two|to|too)\b/);return m?m[1].toUpperCase()+(/1|one|won/.test(m[2])?1:2):null},
+ d:t=>{const n=num(t);return n>=1&&n<=1000?Math.round(n):null},m:t=>{let n=num(t);if(/hour/i.test(t))n=(n||1)*60;return n>=10&&n<=480?Math.round(n):null},
+ b:t=>{const n=num(t);return n>=4&&n<=9?Math.round(n*2)/2:null},c:t=>/begin|zero|nothing|absolute|scratch|none|new/i.test(t)?'Absolute beginner (A0)':P.g(t)};
+const HELP="I can start your lesson, run your daily test, report your progress, switch between German and I E L T S, and change your target, days or minutes, one change at a time. Say repeat, slowly, or translate at any time, stop to finish, and go to sleep when you are done. In a lesson, just talk to me.";
+function status(){return Object.keys(S.tr).map(t=>{const T=S.tr[t],h=T.hist.at(-1);return `${t=='de'?'German':'IELTS'}: day ${T.day+1} of ${T.days}, level ${T.cur}${h?', last result '+h.overall:''}.`}).join(' ')}
+function rp(c){if(/^(please )?(repeat|say (that|it) again|again|come again|pardon)( that| please| the question| it)?\W*$|^(wiederhole|noch ?mal|nochmal|bitte wiederholen|wie bitte)/.test(c)){V.last&&say(V.last.t,V.last.l);return 1}
+ if(/^(please )?(say (that |it )?)?(slow|slowly|slower)( down| please)?\W*$|^langsam/.test(c)){V.last&&say(V.last.t,V.last.l,.6);return 1}
+ if(/^(translate|translation|in english|what does (that|it) mean)\W*$|^übersetz/.test(c)){const m=[...chat].reverse().find(x=>x.role=='model'),e=m&&(m.parts[0].text.match(/^\s*EN\s*:\s*(.+)$/mi)||[])[1];say(e||'There is no translation available.','en');return 1}}
+function cmd(c){const n=c.split(/\s+/).length;if(n>(V.mode=='lesson'?4:8))return;const tr=/ielts|english/.test(c)?'en':/german|deutsch/.test(c)?'de':null;
+ if(/\b(start|begin|resume|continue|open|let'?s)\b.*\b(lesson|class|practice|conversation|session)\b|^lesson$|^(stunde|unterricht)|^(start|study|practice|learn|train)( with)?( my| the)? (german|ielts|english|deutsch)$/.test(c)){vLesson(tr);return 1}
+ if(/\b(test|exam)\b/.test(c)&&/\b(start|begin|take|do|give|run)\b/.test(c)){vTest();return 1}
+ if((/\b(switch|change|go|move)\b.*\bto\b.*\b(german|ielts|english|deutsch)\b|^(german|ielts|deutsch)$/.test(c))&&!/target|level|band|days|minutes/.test(c)){sw(tr);return 1}
+ if(/\b(change|set|update|make|increase|reduce|adjust)\b/.test(c)&&/\b(level|target|band|days?|minutes?|mins|hours?|time|exam)\b/.test(c)){change(c);return 1}
+ if(/progress|how am i doing|my level|status|results?|scores?|report/.test(c)){say(status(),'en');return 1}
+ if(/history|past (days|lessons)/.test(c)){hist();say('Here is your history.','en');return 1}
+ if(/^(help|what can you do|what can i say|commands)\W*$/.test(c)){say(HELP,'en');return 1}
+ if(/^(go )?(home|back|dashboard|menu)$/.test(c)){home();return 1}}
+function hear(t){t=t.trim();if(!t)return;const e=$('#jhear');if(e)e.textContent='🗣 '+t;const c=t.toLowerCase().replace(/^(hey |ok |okay )?jarvis\W*/,'').trim();
+ if(/^(go to sleep|stop listening|goodbye|bye)\W*$/.test(c)){off();say('Goodbye. Click the orb when you need me.','en');return}
+ if(/^(please )?(stop|cancel|quit|exit|abort|end)( the)?( lesson| test| exam| session)?\W*$|^(stopp|abbrechen|beenden|ende)\b/.test(c))return stopAll();
+ if(rp(c))return;if(V.wait)return V.wait(t);if((!V.mode||V.mode=='lesson')&&cmd(c))return;
+ if(V.mode=='lesson'){lbuf.push(t);clearTimeout(lt);lt=setTimeout(()=>{const x=lbuf.join(' ');lbuf=[];snd(x)},2000)}
+ else if(!V.mode)say("I'm not sure what you mean. Say help to hear what I can do.",'en')}
+function stopAll(){const m=V.mode;V.run++;V.mode='';V.wait=null;lbuf=[];clearTimeout(lt);speechSynthesis.cancel();V.speaking=0;home();say(m=='lesson'?'Lesson saved.':'Okay, stopped.','en').then(()=>m=='lesson'&&offerTest())}
+async function offerTest(){const id=++V.run;await say("Would you like to take today's test now?",'en');const a=await listenFor(1200,15000);if(ok(id)&&/\b(yes|yeah|yep|sure|please|ok|okay|ja)\b/i.test(a))vTest()}
+function off(){V.on=0;V.run++;V.mode='';V.wait=null;try{V.rec&&V.rec.abort()}catch(e){}speechSynthesis.cancel();orb(0);const c=$('#jsay');if(c)c.textContent='Jarvis is asleep. Click the orb to wake me.'}
+function toggleJ(){if(V.on)return off();V.on=1;loop();greet()}
+async function greet(){V.run++;if(!S||!S.provs){V.on=0;return say('Please enter an API key first, then press the orb.','en')}if(!Object.keys(S.tr||{}).length)return onboard();const h=new Date().getHours();await say(`${h<12?'Good morning':h<18?'Good afternoon':'Good evening'}. Jarvis online. ${status()} Say start lesson, take test, or help.`,'en')}
+async function ask(id,q,parse,def){for(let k=0;k<3;k++){await say(q,'en');if(!ok(id))return;const a=await listenFor(1400,25000);if(!ok(id))return;if(!a)continue;const v=parse(a);if(v!=null&&v!==false)return v;await say("Sorry, I didn't get that.",'en')}return def}
+async function onboard(only){const id=++V.run;V.mode='onb';setRL('en');let w=only;
+ if(!w){await say("Hello, I am Jarvis, your language coach. Let's set up your training.",'en');if(!ok(id))return;
+  w=await ask(id,'Would you like to train German, I E L T S, or both?',t=>/both|beide/i.test(t)?'both':/german|deutsch/i.test(t)?'de':/ielts|english|i\W?e\W?l\W?t\W?s/i.test(t)?'en':null,'both');if(!ok(id))return}
+ S.tr=S.tr||{};
+ for(const t of w=='both'?['de','en']:[w]){const de=t=='de',n=de?'German':'IELTS';
+  const g=await ask(id,de?'Which German level are you aiming for: A1, A2, B1, B2, C1, or TestDaF?':'Which IELTS band score are you aiming for? For example seven point five, or eight.',de?P.g:P.b,de?'B1':8);if(!ok(id))return;
+  const lv=await ask(id,de?'What is your German level now? Say beginner, or A1, A2, B1.':'What is your current band score, roughly?',de?P.c:P.b,de?'Absolute beginner (A0)':6.5);if(!ok(id))return;
+  const days=await ask(id,`How many days do you have to prepare for ${n}?`,P.d,60);if(!ok(id))return;
+  const min=await ask(id,'How many minutes can you study each day?',P.m,60);if(!ok(id))return;
+  S.tr[t]={goal:de?g:g.toFixed(1),exam:de?(g=='TestDaF'?'TestDaF':'Goethe-Zertifikat '+g):'IELTS',cur:de?lv:'Band '+lv.toFixed(1),days,min,day:0,hist:[],notes:'',lessons:{},weak:[]}}
+ await say('Thank you. I am building your personal syllabus and timetable. This takes a few seconds.','en');
+ try{for(const t of Object.keys(S.tr))if(!S.tr[t].plan)S.tr[t].plan=await mkPlan(t)}catch(e){await say('Sorry, the AI service failed. Please say set up again in a minute.','en');for(const t in S.tr)if(!S.tr[t].plan)delete S.tr[t];save();return home()}
+ if(!ok(id))return;cur=w=='both'?'de':w;save();home();await say(`All set. ${status()} Say start lesson when you are ready.`,'en')}
+async function change(c){const t=/ielts|band|english/.test(c)?'en':/german|deutsch/.test(c)?'de':cur,T=S.tr[t];if(!T)return say('That course is not set up yet.','en');let w;
+ if(/\bdays?\b/.test(c)){const n=P.d(c);if(n)T.days=n,w=n+' days'}else if(/minutes?|mins|hours?/.test(c)){const n=P.m(c);if(n)T.min=n,w=n+' minutes a day'}
+ else if(t=='de'){const g=P.g(c);if(g)T.goal=g,T.exam=g=='TestDaF'?'TestDaF':'Goethe-Zertifikat '+g,w='target '+g}else{const b=P.b(c);if(b)T.goal=b.toFixed(1),w='target band '+b.toFixed(1)}
+ if(!w)return say('Sorry, I did not catch what to change. Try: set my German target to B2, or change study time to 45 minutes.','en');
+ await say(`Updating ${t=='de'?'German':'IELTS'} to ${w}. Rebuilding your plan.`,'en');
+ try{T.plan=await mkPlan(t);T.days=Math.max(T.days,T.day+1);save();home();await say('Done. '+status(),'en')}catch(e){await say('The AI service failed. Please try again later.','en')}}
+async function vLesson(t){if(t&&!S.tr[t])return sw(t);if(t)cur=t;const id=++V.run;await say(`Starting your ${cur=='de'?'German':'IELTS'} lesson. Just speak naturally. Say repeat or slowly if you need to hear something again, and stop when you are done.`,'en');if(ok(id))lesson()}
+async function vsay(r){const f=(r.match(/^\s*FIX\s*:\s*(.+)$/mi)||[])[1],m=(r.match(/^\s*MODEL\s*:\s*(.+)$/mi)||[])[1],p=/PASS\s*:\s*no/i.test(r)?'Not yet. ':/PASS\s*:\s*yes/i.test(r)?'Good. ':'';
+ if(f||p)await say(p+(f||''),lg(f||''));if(m)await say('A model answer: '+m,lg(m));await say(spoken(r))}
+function pk(a,o){a=a.toLowerCase();const sh=a.split(/\s+/).length<=4,m=a.match(/\b(?:option |answer |letter )?([abcd])\b/);if(sh&&m&&m[1].charCodeAt(0)-97<o.length)return m[1].charCodeAt(0)-97;
+ const k=['first|one|1','second|two|2','third|three|3','fourth|four|4'].findIndex(x=>new RegExp('\\b('+x+')\\b').test(a));if(sh&&k>=0&&k<o.length)return k;
+ let b=-1,bs=0;o.forEach((x,i)=>{const sc=x.toLowerCase().split(/\W+/).filter(w=>w.length>2&&a.includes(w)).length;if(sc>bs){bs=sc;b=i}});return b}
+async function vTest(){if(!V.on)return startTest();const id=++V.run;V.mode='test';setRL('en');test=null;
+ await say("Starting your daily test. Answer out loud. Pause, or say next, when you finish an answer. Say stop to cancel. I am preparing the test now.",'en');if(!ok(id))return;
+ await startTest();if(!ok(id)||!test)return;V.mode='test';setRL(cur);
+ for(let i=0;i<test.sections.length;i++){const s=test.sections[i];
+  await say(`${s.skill} task. ${s.instructions}`,lg(s.instructions));if(!ok(id))return;
+  if(s.passage){await say('Read the text on the screen. Say ready when you are.','en');await listenFor(800,90000);if(!ok(id))return}
+  if(s.script)for(let p=0;p<2;p++){await say(p?'Second time.':'Listen carefully.','en');await say(s.script,lg(s.script),.9);if(!ok(id))return}
+  for(let j=0;j<s.items.length;j++){const it=s.items[j],o=it.options;
+   await say(it.q+(o?'. '+o.map((x,k)=>'ABCD'[k]+'. '+x).join('. '):''),lg(it.q));if(!ok(id))return;
+   const a=await listenFor(o?1200:s.skill=='writing'?6000:3500,s.skill=='writing'?240000:120000);if(!ok(id))return;
+   if(o){const k=pk(a,o),r=k>=0&&document.querySelector(`input[name=a${i}_${j}][value="${k}"]`);if(r)r.checked=true}else $('#a'+i+'_'+j).value=a}}
+ await say('That was the last task. I am marking your test now.','en');if(!ok(id))return;
+ await submit();V.mode='';setRL('en');const h=S.tr[cur].hist.at(-1);if(h)await say(`Your result: ${h.overall}. ${h.note||''} Say start lesson to practise your weak points, or ask for your progress.`,'en')}
+
 let rec;
-function listen(cb){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return alert('Speech input needs Chrome or Edge.');
+function listen(cb){if(V.on)return st('Jarvis is listening – just speak');const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return alert('Speech input needs Chrome or Edge.');
  if(window.speechSynthesis)speechSynthesis.cancel();if(rec)try{rec.abort()}catch(e){}
  const r=rec=new SR();r.lang=LANG[cur];r.interimResults=false;let txt='';r.onstart=()=>st('🎙 Listening… speak now');r.onresult=e=>{txt=[...e.results].map(x=>x[0].transcript).join(' ')};r.onend=()=>{badge();if(txt.trim())cb(txt.trim())};
  r.onerror=e=>{if(e.error=='aborted')return;alert(e.error=='not-allowed'||e.error=='service-not-allowed'?'Microphone is blocked. Click the lock icon in the address bar, allow Microphone, then reload.':e.error=='no-speech'?'I did not hear anything. Click Speak, then talk right away.':'Mic error: '+e.error)};
@@ -78,33 +166,18 @@ async function mkPlan(t){const T=S.tr[t];
  return ai(`Learner: ${t=='de'?`absolute beginner in German aiming for ${T.exam}. Cover all 4 modules (Lesen, Hören, Schreiben, Sprechen)`:`IELTS, current ${T.cur}, target band ${T.goal}. ONLY speaking and listening`}. Days available: ${T.days}. Study minutes per day: ${T.min}. Training is conversation-based with an AI tutor (voice/chat) plus one exam-style test every day. Return JSON {"verdict":"honest 1-2 sentence feasibility check","phases":[{"name":"","days":0,"topics":[""]}] (days sum to ${T.days}),"timetable":[{"activity":"","minutes":0}] (minutes sum to ${T.min}, includes the daily test)}`,EX,true)}
 
 /* ---------- Setup ---------- */
-function setup(){R(`<div class="card"><h2>Polyglot Coach – setup</h2>
-<p class="m">Add at least one free key (Groq is fast and recommended). With several keys the app switches automatically when one is busy.</p>${keyRows()}
-<h3>🇩🇪 German (starting from zero)</h3><div class="row">
-<label>Target exam<select id="dg"><option>A1</option><option>A2</option><option selected>B1</option><option>B2</option><option>C1</option><option>TestDaF</option></select></label>
-<label>Days available<input id="dd" type="number" value="120"></label><label>Minutes/day<input id="dm" type="number" value="90"></label></div>
-<h3>🇬🇧 IELTS (Speaking + Listening)</h3><div class="row">
-<label>Target band<select id="eg">${[9,8.5,8,7.5,7,6.5,6].map(b=>`<option ${b==8?'selected':''}>${b.toFixed(1)}</option>`).join('')}</select></label>
-<label>Current band (estimate)<select id="ec">${[7.5,7,6.5,6,5.5,5].map(b=>`<option ${b==6.5?'selected':''}>${b.toFixed(1)}</option>`).join('')}</select></label>
-<label>Days available<input id="ed" type="number" value="45"></label><label>Minutes/day<input id="em" type="number" value="45"></label></div>
-<button onclick="setupGo()">Build my syllabus & timetable</button></div>`)}
-async function setupGo(){const g=i=>$('#'+i).value;
- const provs=readKeys();if(!provs.length)return alert('Enter at least one API key');
- S={provs,tr:{
-  de:{goal:g('dg'),exam:g('dg')=='TestDaF'?'TestDaF':'Goethe-Zertifikat '+g('dg'),cur:'Absolute beginner (A0)',days:+g('dd'),min:+g('dm'),day:0,hist:[],notes:''},
-  en:{goal:g('eg'),cur:'Band '+g('ec'),days:+g('ed'),min:+g('em'),day:0,hist:[],notes:''}}};
- R(load('Building your syllabus and timetable…'));
- try{for(const t of['de','en'])S.tr[t].plan=await mkPlan(t);save();home()}catch(e){alert(e.message);S=null;setup()}}
+function setup(){R(`<div class="card"><h2>Welcome to Polyglot Coach</h2><p class="m">The API key is the only thing you type. After that, you talk to Jarvis for everything: choosing German or IELTS, levels, days, lessons and tests.</p>${keyRows()}<button onclick="setupGo()">🎙 Save keys & wake Jarvis</button></div>`)}
+function setupGo(){const p=readKeys();if(!p.length)return alert('Enter at least one API key');S=S||{tr:{}};S.provs=p;S.tr=S.tr||{};save();V.on=1;loop();greet()}
 function resetAll(){if(confirm('Delete all progress and settings?')){localStorage.removeItem('pc');S=null;setup()}}
 
 /* ---------- Dashboard ---------- */
-function sw(t){cur=t;chat=[];home()}
-function home(){if(!S)return setup();const T=S.tr[cur],p=topic(cur),pct=Math.min(100,Math.round(T.day/T.days*100)),h=T.hist.at(-1);
+function sw(t){if(!t)return;if(!S.tr[t]){if(!V.on){V.on=1;loop()}return onboard(t)}cur=t;chat=[];home();say('Switching to '+(t=='de'?'German':'IELTS')+'.','en')}
+function home(){if(!S||!S.provs)return setup();V.mode='';lbuf=[];if(V.on)setRL('en');if(!S.tr[cur])cur=Object.keys(S.tr)[0]||cur;if(!S.tr[cur])return R(`<div class="card"><h2>Let's set up your course</h2><p>Click the orb and talk to Jarvis.</p><button onclick="V.on?onboard():toggleJ()">🎙 Start voice setup</button></div>`);const T=S.tr[cur],p=topic(cur),pct=Math.min(100,Math.round(T.day/T.days*100)),h=T.hist.at(-1);
  R(`<div class="tabs"><button class="${cur=='de'?'on':''}" onclick="sw('de')">🇩🇪 German</button><button class="${cur=='en'?'on':''}" onclick="sw('en')">🇬🇧 IELTS</button></div>
  <div class="card"><div class="m">${esc(exam(cur))} · target ${T.goal}</div><h2>Day ${Math.min(T.day+1,T.days)} <span class="m">of ${T.days}</span></h2><div class="bar"><i style="width:${pct}%"></i></div>
  <div class="stats"><div><b>${esc(T.cur)}</b><span>Current level</span></div><div><b>${T.hist.length}</b><span>Tests done</span></div><div><b>${h?esc(h.overall):'–'}</b><span>Last result</span></div></div>
  <p class="m">${esc(T.plan.verdict)}</p><p><b>Today · ${esc(p.name)}</b><br>${esc(p.topics.join(' · '))}</p>${T.notes?`<p class="note">🎯 Focus from last test: ${esc(T.notes)}</p>`:''}
- <div class="row"><button onclick="lesson()">💬 ${(T.lessons||{})[T.day+1]?'Continue':'Start'} conversation lesson</button><button onclick="startTest()">📝 Take daily test</button></div></div>
+ <div class="row"><button onclick="lesson()">💬 ${(T.lessons||{})[T.day+1]?'Continue':'Start'} conversation lesson</button><button onclick="vTest()">📝 Take daily test</button></div></div>
  <div class="grid"><div class="card"><b>Daily timetable (${T.min} min)</b><ul>${T.plan.timetable.map(x=>`<li>${esc(x.activity)} – ${x.minutes} min</li>`).join('')}</ul></div>
  <div class="card"><b>Syllabus</b>${T.plan.phases.map(x=>`<details><summary>${esc(x.name)} (${x.days} days)</summary><ul>${x.topics.map(y=>`<li>${esc(y)}</li>`).join('')}</ul></details>`).join('')}</div></div>
  <div class="row foot"><button class="g" onclick="hist()">📚 History</button><button class="g" onclick="keys()">🔑 API keys</button><button class="g" onclick="exp()">⬇ Backup</button><label class="btn">⬆ Restore<input type="file" accept=".json" hidden onchange="imp(this)"></label><button class="g" onclick="resetAll()">Reset</button></div>`)}
@@ -125,7 +198,7 @@ function tries(){let n=0;for(let i=chat.length-1;i>0;i--){if(chat[i].role!='mode
 function badge(){const n=tries();st(n?`🔁 Attempt ${n+1} of 3 – apply the correction and answer again`:'')}
 function rep(i,rate){const m=i?chat[i]:[...chat].reverse().find(x=>x.role=='model');if(m)say(spoken(m.parts[0].text),cur,rate)}
 function saveL(){const T=S.tr[cur];(T.lessons=T.lessons||{})[T.day+1]=chat.slice(1).map(m=>({r:m.role,t:m.parts[0].text}));save()}
-function lesson(){const T=S.tr[cur],d=T.day+1,old=(T.lessons||{})[d]||[];
+function lesson(){V.mode='lesson';if(V.on)setRL(cur);const T=S.tr[cur],d=T.day+1,old=(T.lessons||{})[d]||[];
  chat=[{role:'user',parts:[{text:"Start today's lesson with a greeting and your first question."}]},...old.map(m=>({role:m.r,parts:[{text:m.t}]}))];
  R(`<div class="card"><div class="row"><b>${cur=='de'?'🇩🇪 German':'🇬🇧 IELTS'} lesson · Day ${d}</b><button class="g" onclick="home()">← Back</button></div><div id="log"></div><div id="st" class="m"></div>
  <div class="row"><input id="in" placeholder="Type your answer, or use the microphone" onkeydown="if(event.key=='Enter')snd()"><button onclick="listen(x=>snd(x))">🎤 Speak</button><button onclick="snd()">Send</button></div>
@@ -133,7 +206,7 @@ function lesson(){const T=S.tr[cur],d=T.day+1,old=(T.lessons||{})[d]||[];
  old.length&&old.at(-1).r=='model'?(log(),badge()):turn()}
 function log(){$('#log').innerHTML=chat.slice(1).map((m,i)=>`<div class="msg ${m.role=='user'?'u':'a'}">${m.role=='model'?fmt(m.parts[0].text):esc(m.parts[0].text)}${m.role=='model'?`<button class="ic" title="Play again" onclick="rep(${i+1})">🔊</button>`:''}</div>`).join('');$('#log').scrollTop=1e9}
 let busy=false;
-async function turn(){if(busy)return;busy=true;try{$('#log').innerHTML+='<div class="m">Tutor is typing…</div>';const r=await ai(chat,SYS[cur]+'\n'+ctx(cur)+`\nThe learner's latest answer is attempt ${tries()+1} of 3 on the current question.`);chat.push({role:'model',parts:[{text:r}]});const w=r.match(/^\s*WEAK:\s*(.+)$/mi),T=S.tr[cur];if(w)T.weak=[...new Set([...(T.weak||[]),w[1].trim()])].slice(-8);saveL();log();if($('#sp').checked)say(spoken(r))}catch(e){alert(e.message);log()}finally{busy=false;badge()}}
+async function turn(){if(busy)return;busy=true;try{$('#log').innerHTML+='<div class="m">Tutor is typing…</div>';const r=await ai(chat,SYS[cur]+'\n'+ctx(cur)+`\nThe learner's latest answer is attempt ${tries()+1} of 3 on the current question.`);chat.push({role:'model',parts:[{text:r}]});const w=r.match(/^\s*WEAK:\s*(.+)$/mi),T=S.tr[cur];if(w)T.weak=[...new Set([...(T.weak||[]),w[1].trim()])].slice(-8);saveL();log();if($('#sp').checked)V.on?vsay(r):say(spoken(r))}catch(e){alert(e.message);log()}finally{busy=false;badge()}}
 function snd(v){if(busy)return st('Please wait, the tutor is still replying…');const i=$('#in'),t=(v||i.value).trim();if(!t)return;i.value='';chat.push({role:'user',parts:[{text:t}]});saveL();log();turn()}
 
 /* ---------- Daily exam-style test ---------- */
