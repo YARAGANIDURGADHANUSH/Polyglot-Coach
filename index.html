@@ -48,9 +48,9 @@ async function call(p,msgs,sys,json){
   body:JSON.stringify({model:p.model,messages:[{role:'system',content:sys||''},...msgs.map(m=>({role:m.role=='user'?'user':'assistant',content:m.parts[0].text}))]})});
  const d=await r.json();if(d.error)throw new Error(d.error.message||JSON.stringify(d.error));return d.choices[0].message.content}
 async function ai(p,sys,json){
- const msgs=Array.isArray(p)?p:[{role:'user',parts:[{text:p}]}];let last;
- for(const pr of S.provs)for(let k=0;k<2;k++){try{const t=await call(pr,msgs,sys,json);return json?parse(t):t}catch(e){last=e;await new Promise(r=>setTimeout(r,1200))}}
- throw new Error('All providers failed ('+last.message+'). Wait a minute or add another free key under "API keys".')}
+ let msgs=Array.isArray(p)?p:[{role:'user',parts:[{text:p}]}];if(msgs.length>12)msgs=[msgs[0],...msgs.slice(-10)];let last,quota=0;
+ for(const pr of S.provs)for(let k=0;k<2;k++){try{const t=await call(pr,msgs,sys,json);return json?parse(t):t}catch(e){last=e;if(/quota|rate.?limit|429|exceed/i.test(e.message)){quota=1;break}await new Promise(r=>setTimeout(r,1200))}}
+ throw new Error(quota?'Free quota reached on your AI key(s). Wait about a minute, or add a Groq key under "API keys" (it has a much higher free limit).':'All providers failed ('+last.message+')')}
 const keyRows=()=>Object.keys(PV).map(id=>`<label>${PV[id].n} key <span class="m">(${PV[id].h})</span><input id="k_${id}" value="${esc((S?.provs||[]).find(p=>p.id==id)?.key||'')}"></label>`).join('');
 const readKeys=()=>Object.keys(PV).filter(id=>$('#k_'+id).value.trim()).map(id=>({id,key:$('#k_'+id).value.trim(),model:PV[id].m}));
 function keys(){R(`<div class="card"><h3>API keys</h3><p class="m">Keys are tried in this order; if one is busy the next is used automatically.</p>${keyRows()}<div class="row"><button onclick="const k=readKeys();if(!k.length)return alert('Add at least one key');S.provs=k;save();home()">Save</button><button class="g" onclick="home()">Back</button></div></div>`)}
@@ -61,14 +61,14 @@ const st=m=>{const e=$('#st');if(e)e.textContent=m};
 let rec;
 function listen(cb){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return alert('Speech input needs Chrome or Edge.');
  if(window.speechSynthesis)speechSynthesis.cancel();if(rec)try{rec.abort()}catch(e){}
- const r=rec=new SR();r.lang=LANG[cur];r.interimResults=false;r.onstart=()=>st('🎙 Listening… speak now');r.onend=()=>st('');r.onresult=e=>cb(e.results[0][0].transcript);
+ const r=rec=new SR();r.lang=LANG[cur];r.interimResults=false;let txt='';r.onstart=()=>st('🎙 Listening… speak now');r.onresult=e=>{txt=[...e.results].map(x=>x[0].transcript).join(' ')};r.onend=()=>{st('');if(txt.trim())cb(txt.trim())};
  r.onerror=e=>{if(e.error=='aborted')return;alert(e.error=='not-allowed'||e.error=='service-not-allowed'?'Microphone is blocked. Click the lock icon in the address bar, allow Microphone, then reload.':e.error=='no-speech'?'I did not hear anything. Click Speak, then talk right away.':'Mic error: '+e.error)};
  setTimeout(()=>{try{r.start()}catch(e){}},300)}
 
 /* ---------- Prompts ---------- */
 const SYS={
-de:`You are a friendly German tutor and certified Goethe-Institut/TestDaF examiner running a spoken-style conversation lesson. Keep replies under 70 words. Reply in German suited to the learner's level (absolute beginner: very short, simple sentences), then a new line starting "EN: " with an English translation/help. If the learner made mistakes, add a line "FIX: " with corrections. End with ONE question to keep the conversation going.`,
-en:`You are a certified IELTS Speaking examiner and coach. Run the conversation like IELTS Speaking Parts 1-3 adapted to today's topic, one question at a time, replies under 60 words. After each learner answer add "FIX: " (grammar/vocabulary corrections and a stronger band-8 phrasing) and "BAND: " (estimated band for that answer), then ask the next question.`};
+de:`You are a friendly German tutor and certified Goethe-Institut/TestDaF examiner running a spoken-style conversation lesson. Keep replies under 70 words. Reply in German suited to the learner's level (absolute beginner: very short, simple sentences) and end the German part with ONE question. Then add, each on a SINGLE line: "EN: " English translation, and only if the learner made mistakes "FIX: " the corrections. Never change the topic until the learner has answered.`,
+en:`You are a certified IELTS Speaking examiner and coach running a conversation lesson on today's topic. Follow the real order: Part 1 (about 5 questions), then a Part 2 cue card, then Part 3 discussion. Ask ONE question at a time and do not move on until the learner has given a full answer. Reply format, each on a SINGLE line: "FIX: " corrections plus a stronger band-8 version of the learner's actual answer, "BAND: " estimate for that answer, then a blank line, then "Q: " the next question. Under 60 words in total. For the very first message only greet briefly and ask the first Part 1 question as "Q: ".`};
 const EX=`You are a strict, certified examiner. Produce and mark tasks that mirror the authentic format, difficulty and marking criteria of the real exam. Output valid JSON only when asked.`;
 const exam=t=>t=='de'?S.tr.de.exam:'IELTS (Speaking & Listening only)';
 function topic(t){const T=S.tr[t];let d=T.day;for(const p of T.plan.phases){if(d<p.days)return p;d-=p.days}return T.plan.phases.at(-1)}
@@ -119,7 +119,8 @@ function hist(){const T=S.tr[cur],L=T.lessons||{},days=[...new Set([...Object.ke
  ${l?`<details><summary>💬 Lesson transcript (${l.length} messages)</summary>${l.map(m=>`<div class="msg ${m.r=='user'?'u':'a'}">${esc(m.t)}</div>`).join('')}</details>`:''}</details>`}).join('')||'<div class="card m">Nothing yet. Finish a lesson or test and it will appear here.</div>'))}
 
 /* ---------- Conversation lesson ---------- */
-const spoken=t=>t.split(/\n?(?:EN|FIX|BAND):/)[0];
+const spoken=t=>{const m=t.match(/(?:^|\n)\s*Q:\s*([\s\S]*)$/);return m?m[1].trim():t.split('\n').filter(l=>!/^\s*\**(FIX|BAND|EN|Band[- ]?8)/i.test(l)).join(' ').trim()};
+const fmt=t=>t.split('\n').map(l=>!l.trim()?'<br>':/^\s*(FIX|BAND|EN)\s*:/i.test(l)?`<div class="m">${esc(l)}</div>`:`<div>${esc(l.replace(/^\s*Q:\s*/,''))}</div>`).join('');
 function rep(i,rate){const m=i?chat[i]:[...chat].reverse().find(x=>x.role=='model');if(m)say(spoken(m.parts[0].text),cur,rate)}
 function saveL(){const T=S.tr[cur];(T.lessons=T.lessons||{})[T.day+1]=chat.slice(1).map(m=>({r:m.role,t:m.parts[0].text}));save()}
 function lesson(){const T=S.tr[cur],d=T.day+1,old=(T.lessons||{})[d]||[];
@@ -128,9 +129,10 @@ function lesson(){const T=S.tr[cur],d=T.day+1,old=(T.lessons||{})[d]||[];
  <div class="row"><input id="in" placeholder="Type your answer, or use the microphone" onkeydown="if(event.key=='Enter')snd()"><button onclick="listen(x=>snd(x))">🎤 Speak</button><button onclick="snd()">Send</button></div>
  <div class="row"><button class="g" onclick="rep()">🔁 Repeat last</button><button class="g" onclick="rep(0,.6)">🐢 Repeat slowly</button><label><input type="checkbox" id="sp" checked> Read replies aloud</label></div></div>`);
  old.length&&old.at(-1).r=='model'?log():turn()}
-function log(){$('#log').innerHTML=chat.slice(1).map((m,i)=>`<div class="msg ${m.role=='user'?'u':'a'}">${esc(m.parts[0].text)}${m.role=='model'?`<button class="ic" title="Play again" onclick="rep(${i+1})">🔊</button>`:''}</div>`).join('');$('#log').scrollTop=1e9}
-async function turn(){try{$('#log').innerHTML+='<div class="m">Tutor is typing…</div>';const r=await ai(chat,SYS[cur]+'\n'+ctx(cur));chat.push({role:'model',parts:[{text:r}]});saveL();log();if($('#sp').checked)say(spoken(r))}catch(e){alert(e.message);log()}}
-function snd(v){const i=$('#in'),t=(v||i.value).trim();if(!t)return;i.value='';chat.push({role:'user',parts:[{text:t}]});saveL();log();turn()}
+function log(){$('#log').innerHTML=chat.slice(1).map((m,i)=>`<div class="msg ${m.role=='user'?'u':'a'}">${m.role=='model'?fmt(m.parts[0].text):esc(m.parts[0].text)}${m.role=='model'?`<button class="ic" title="Play again" onclick="rep(${i+1})">🔊</button>`:''}</div>`).join('');$('#log').scrollTop=1e9}
+let busy=false;
+async function turn(){if(busy)return;busy=true;try{$('#log').innerHTML+='<div class="m">Tutor is typing…</div>';const r=await ai(chat,SYS[cur]+'\n'+ctx(cur));chat.push({role:'model',parts:[{text:r}]});saveL();log();if($('#sp').checked)say(spoken(r))}catch(e){alert(e.message);log()}finally{busy=false;st('')}}
+function snd(v){if(busy)return st('Please wait, the tutor is still replying…');const i=$('#in'),t=(v||i.value).trim();if(!t)return;i.value='';chat.push({role:'user',parts:[{text:t}]});saveL();log();turn()}
 
 /* ---------- Daily exam-style test ---------- */
 async function startTest(){R(load('Preparing today\'s exam-style test…'));const T=S.tr[cur];
